@@ -1,0 +1,14 @@
+{
+  "name": "application-name",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "underscore": "~1.5.2",
+    "aws-sdk": "~2.0.0-rc6",
+    "mongoose": "~3.8.4",
+    "async": "~0.2.9"
+  }
+}
