@@ -11,6 +11,8 @@ mongoose.connect('mongodb://archer:rampart@localhost/test');
 var Instance = require('./app/models/instance');
 var Lock = require('./app/models/lock');
 
+var updatedRecords = 0;
+
 fs.readFile('./config.json', 'utf8', function(err, data) {
 	if (err) {
 		console.log("fs error : " + err);
@@ -21,25 +23,31 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 		var ec2s = [];
 
 		fillEC2s(serviceObject, ec2s);
-		
+
 		var lock = null;
 
 		var worker = function(done) {
 
 			async.series({
 				getLock : function(seriesCallback) {
-					console.log("State : Locking");
 
-					Lock.remove(function(err) {
+					Lock.find(function(err, locks) {
+						console.log("State : Locking");
 						if (err) {
 							console.log(err);
 						} else {
-
-							lock = new Lock({
-								updatedRecords : 0,
-								locked : true
-							});
-
+							if (locks.length) {
+								console.log("Lock : Exist");
+								lock = locks[0];
+								lock.locked = true;
+							} else {
+								console.log("Lock : Non-Exist");
+								lock = new Lock({
+									updatedRecords : 0,
+									locked : true
+								});
+							}
+							
 							lock.save(function(err) {
 								if (err) {
 									console.log(err);
@@ -49,11 +57,12 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 							});
 						}
 					});
+
 				},
 
 				descInstances : function(seriesCallback) {
 					console.log("State : Working");
-
+					
 					_.each(ec2s, function(ec2) {
 						ec2.describeInstances(null, action);
 					});
@@ -68,6 +77,9 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 							console.log(err);
 						} else {
 							lock.locked = false;
+							lock.updatedRecords = updatedRecords;
+							console.log("Records : " + updatedRecords);
+							updatedRecords = 0;
 							lock.save(function(err) {
 								if (err) {
 									console.log(err);
@@ -75,8 +87,8 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 									console.log("State : Releasing");
 
 									seriesCallback();
-									setTimeout(done, 10000);
 									// Lock-Free Timer
+									setTimeout(done, 10000);
 								}
 							});
 						}
@@ -91,11 +103,15 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 	}
 });
 
+
 function action(err, data) {
 	if (err) {
 		console.log(err);
 	} else {
 		_.each(data.Reservations, function(item) {
+			
+			updatedRecords++;
+			
 			var ref = item.Instances[0];
 			var instance = createInstance(ref);
 			instance.save(function(err, data) {
