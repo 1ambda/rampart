@@ -2,6 +2,21 @@ var AWS = require('./app/utils/aws');
 var _ = require('underscore');
 var fs = require('fs');
 var async = require('async');
+var EventEmitter = require('events').EventEmitter;
+var colors = require('colors');
+
+colors.setTheme({
+	silly : 'rainbow',
+	input : 'grey',
+	verbose : 'cyan',
+	prompt : 'grey',
+	info : 'green',
+	data : 'grey',
+	help : 'cyan',
+	warn : 'yellow',
+	debug : 'blue',
+	error : 'red'
+});
 
 // mongoose
 var mongoose = require('mongoose');
@@ -11,7 +26,22 @@ mongoose.connect('mongodb://archer:rampart@localhost/test');
 var Instance = require('./app/models/instance');
 var Lock = require('./app/models/lock');
 
+// 'section' means the process of getting information of a instance
+var section = new EventEmitter();
+var descSectionDone = null;
+
+var regionFinished = 0;
+var regionNumber = 0;
 var updatedRecords = 0;
+
+section.on('sectionCompleted', function(regionRecord) {
+
+	console.log('\t  Region Status : ' + regionFinished + '/' + regionNumber);
+
+	if (regionNumber === regionFinished) {
+		descSectionDone();
+	}
+});
 
 fs.readFile('./config.json', 'utf8', function(err, data) {
 	if (err) {
@@ -32,22 +62,22 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 				getLock : function(seriesCallback) {
 
 					Lock.find(function(err, locks) {
-						console.log("State : Locking");
+
 						if (err) {
 							console.log(err);
 						} else {
 							if (locks.length) {
-								console.log("Lock : Exist");
+								console.log(("Rampart > ").info + ("locked") + (" [Exist]").help);
 								lock = locks[0];
 								lock.locked = true;
 							} else {
-								console.log("Lock : Non-Exist");
+								console.log(("Rampart > ").info + ("locked") + (" [Non-Exist]").help);
 								lock = new Lock({
 									updatedRecords : 0,
 									locked : true
 								});
 							}
-							
+
 							lock.save(function(err) {
 								if (err) {
 									console.log(err);
@@ -61,13 +91,15 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 				},
 
 				descInstances : function(seriesCallback) {
-					console.log("State : Working");
-					
+					console.log(("Rampart > ").info + ("working"));
+					descSectionDone = seriesCallback;
+
+					regionNumber = ec2s.length;
+					console.log(('\t  Region Number : ' + regionNumber).grey);
+
 					_.each(ec2s, function(ec2) {
 						ec2.describeInstances(null, action);
 					});
-
-					setTimeout(seriesCallback, 10000);
 				},
 
 				releaseLock : function(seriesCallback) {
@@ -78,17 +110,25 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 						} else {
 							lock.locked = false;
 							lock.updatedRecords = updatedRecords;
-							console.log("Records : " + updatedRecords);
+							console.log(("\t  Updated Records : " + updatedRecords).warn);
+
+							// Re-initailize lock-related data
 							updatedRecords = 0;
+							regionNumber = 0;
+							regionFinished = 0;
+							descSectionDone = null;
+
 							lock.save(function(err) {
 								if (err) {
 									console.log(err);
 								} else {
-									console.log("State : Releasing");
+									console.log(("Rampart > ").info + ("released"));
 
 									seriesCallback();
 									// Lock-Free Timer
 									setTimeout(done, 10000);
+
+									// 300000
 								}
 							});
 						}
@@ -103,22 +143,29 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 	}
 });
 
-
 function action(err, data) {
 	if (err) {
 		console.log(err);
 	} else {
-		_.each(data.Reservations, function(item) {
-			
+
+		async.map(data.Reservations, function(item, callback) {
+
 			updatedRecords++;
-			
+			// console.log('Updated Instance : ' + updatedRecords);
+
 			var ref = item.Instances[0];
 			var instance = createInstance(ref);
 			instance.save(function(err, data) {
 				if (err) {
 					console.log(err);
 				}
+
+				callback();
 			});
+
+		}, function(err, results) {
+			regionFinished++;
+			section.emit('sectionCompleted');
 		});
 	}
 };
@@ -172,7 +219,6 @@ function fillEC2s(serviceObject, ec2s) {
 	ec2s[7] = new serviceObject.EC2({
 		region : 'sa-east-1'
 	});
-
 };
 
 var seriesCallback = function(err, results) {
