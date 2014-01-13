@@ -9,7 +9,8 @@ var InstanceSchema = new mongoose.Schema({
 	public_ip: String,
 	private_ip: String,
 	security_group: String,
-	updated: { type: Date, default: Date.now }
+	updated: { type: Date, default: Date.now },
+	
 });
 
 var Instance = mongoose.model('Instance', InstanceSchema);

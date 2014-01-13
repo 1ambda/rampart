@@ -14,7 +14,7 @@ colors.setTheme({
 	data : 'grey',
 	help : 'cyan',
 	warn : 'yellow',
-	debug : 'blue',
+	debug : 'magenta',
 	error : 'red'
 });
 
@@ -32,7 +32,17 @@ var descSectionDone = null;
 
 var regionFinished = 0;
 var regionNumber = 0;
-var updatedRecords = 0;
+var updatedRecords = {
+	global : 0,
+	tokyo : 0,
+	singapore : 0,
+	sydney : 0,
+	ireland : 0,
+	saopaulo : 0,
+	virginia : 0,
+	california : 0,
+	oregon : 0,
+};
 
 section.on('sectionCompleted', function(regionRecord) {
 
@@ -73,7 +83,6 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 							} else {
 								console.log(("Rampart > ").info + ("locked") + (" [Non-Exist]").help);
 								lock = new Lock({
-									updatedRecords : 0,
 									locked : true
 								});
 							}
@@ -104,33 +113,34 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 
 				releaseLock : function(seriesCallback) {
 
-					Lock.find(function(err, data) {
+					makeLock(lock, updatedRecords);
+
+					// Re-initailize lock-related data
+					updatedRecords = {
+						global : 0,
+						tokyo : 0,
+						singapore : 0,
+						sydney : 0,
+						ireland : 0,
+						saopaulo : 0,
+						virginia : 0,
+						california : 0,
+						oregon : 0,
+					};
+					regionNumber = 0;
+					regionFinished = 0;
+					descSectionDone = null;
+
+					lock.save(function(err) {
 						if (err) {
 							console.log(err);
 						} else {
-							lock.locked = false;
-							lock.updatedRecords = updatedRecords;
-							console.log(("\t  Updated Records : " + updatedRecords).warn);
+							console.log(("Rampart > ").info + ("released"));
 
-							// Re-initailize lock-related data
-							updatedRecords = 0;
-							regionNumber = 0;
-							regionFinished = 0;
-							descSectionDone = null;
+							seriesCallback();
+							// Lock-Free Timer
+							setTimeout(done, 120000);
 
-							lock.save(function(err) {
-								if (err) {
-									console.log(err);
-								} else {
-									console.log(("Rampart > ").info + ("released"));
-
-									seriesCallback();
-									// Lock-Free Timer
-									setTimeout(done, 10000);
-
-									// 300000
-								}
-							});
 						}
 					});
 				}
@@ -150,11 +160,9 @@ function action(err, data) {
 
 		async.map(data.Reservations, function(item, callback) {
 
-			updatedRecords++;
-			// console.log('Updated Instance : ' + updatedRecords);
-
 			var ref = item.Instances[0];
 			var instance = createInstance(ref);
+
 			instance.save(function(err, data) {
 				if (err) {
 					console.log(err);
@@ -172,12 +180,18 @@ function action(err, data) {
 
 function createInstance(data) {
 
+	var zone = data.Placement.AvailabilityZone;
+	var region = checkRegion(zone);
+
+	updatedRecords.global++;
+	updatedRecords[region]++;
+
 	var instance = new Instance({
-		serivce_name : data.Tags[0].Value,
+		service_name : data.Tags[0].Value,
 		instance_id : data.InstanceId,
 		instance_type : data.InstanceType,
 		instance_state : data.State.Name,
-		region : data.Placement.AvailabilityZone,
+		region : region,
 		public_ip : data.PublicIpAddress,
 		private_ip : data.PrivateIpAddress,
 		security_group : data.SecurityGroups[0].GroupName
@@ -185,6 +199,56 @@ function createInstance(data) {
 
 	return instance;
 }
+
+function makeLock(lock, updatedRecords) {
+
+	lock.locked = false;
+	lock.updated = new Date().toISOString();
+	lock.global = updatedRecords.global;
+	lock.tokyo = updatedRecords.tokyo;
+	lock.singapore = updatedRecords.singapore;
+	lock.sydney = updatedRecords.sydney;
+	lock.ireland = updatedRecords.ireland;
+	lock.saopaulo = updatedRecords.saopaulo;
+	lock.california = updatedRecords.california;
+	lock.virginia = updatedRecords.virginia;
+	lock.oregon = updatedRecords.oregon;
+	
+	console.log(("\t  Updated [Global]: " + updatedRecords.global).warn);
+	console.log(("\t  Updated [Tokyo]: " + updatedRecords.tokyo).debug);
+	console.log(("\t  Updated [Singapore]: " + updatedRecords.singapore).debug);
+	console.log(("\t  Updated [Sydney]: " + updatedRecords.sydney).debug);
+	console.log(("\t  Updated [Ireland]: " + updatedRecords.ireland).debug);
+	console.log(("\t  Updated [Saopaulo]: " + updatedRecords.saopaulo).debug);
+	console.log(("\t  Updated [Virginia]: " + updatedRecords.virginia).debug);
+	console.log(("\t  Updated [California]: " + updatedRecords.california).debug);
+	console.log(("\t  Updated [Oregon]: " + updatedRecords.oregon).debug);
+};
+
+function checkRegion(zone) {
+
+	var region = null;
+
+	if (/^ap-northeast-1/.test(zone)) {
+		region = 'tokyo';
+	} else if (/^ap-southeast-2/.test(zone)) {
+		region = 'sydney';
+	} else if (/^ap-southeast-1/.test(zone)) {
+		region = 'singapore';
+	} else if (/^sa-east-1/.test(zone)) {
+		region = 'saopaulo';
+	} else if (/^eu-west-1/.test(zone)) {
+		region = 'ireland';
+	} else if (/^us-west-1/.test(zone)) {
+		region = 'california';
+	} else if (/^us-west-2/.test(zone)) {
+		region = 'oregon';
+	} else if (/^us-east-1/.test(zone)) {
+		region = 'virginia';
+	}
+
+	return region;
+};
 
 function fillEC2s(serviceObject, ec2s) {
 	// Virginia
