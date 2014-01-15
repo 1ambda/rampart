@@ -19,10 +19,10 @@ colors.setTheme({
 });
 
 // timer
-var lock_free_time = 120000;
-// 120 seconds
+var lock_free_time = 300000;
+// Every 300 seconds, Rampart are going to poll
 var resource_polling_range = 60;
-// 60 minutes
+// Last 60 minutes
 
 // mongoose
 var mongoose = require('mongoose');
@@ -190,18 +190,18 @@ function polling(err, data) {
 	} else {
 
 		// Instance Polling
-		async.map(data.Reservations, function(item, outer_callback) {
+		async.map(data.Reservations, function(item, instanceCallback) {
 
 			var ref = item.Instances[0];
 			var instance = createInstance(ref);
 
 			instance.save(function(err, data) {
 				if (err) {
-					console.log(err);
+					return console.log(err);
 				}
 
 				// Resource Polling
-				async.map(cwMetricArgList, function(item, inner_callback) {
+				async.map(cwMetricArgList, function(item, resourceCallback) {
 					var cw = getCwRegion(cws, instance);
 					var cwMetricParams = createMetricParams();
 					setMetricParamsTime(cwMetricParams);
@@ -213,20 +213,28 @@ function polling(err, data) {
 						if (err) {
 							console.log(err);
 						} else {
-							var stat = sortResourceStat(docs.Datapoints);
-							
-							var resource = createResource(stat);
-							
-							todotodotodotodo;
-							// console.log("[" + cw.region + "] " + instance.instance_id + "'s " + cwMetricParams.MetricName);
-							// console.log("Stat Count : " + _.size(stat));
-							inner_callback();
+							var sortedStat = sortResourceStat(docs.Datapoints);
+
+							async.map(sortedStat, function(item, statCallback) {
+								var resource = createResource(instance, cwMetricParams.MetricName, item);
+
+								resource.save(function(err, data) {
+									if (err) {
+										console.log('Metric Duplicated [' + cwMetricParams.MetricName + '] ' + ' > ' +  
+											resource.instance_id + '(' + resource.service_name + ')' + ' of ' + resource.region);
+									}
+									
+									statCallback();
+								});
+							}, function(err, results) {
+								resourceCallback();
+							});
 						}
 
 					});
 
 				}, function(err, results) {
-					outer_callback();
+					instanceCallback();
 				});
 
 			});
@@ -253,10 +261,23 @@ function sortResourceStat(stat) {
 	return parsedStat;
 };
 
+function createResource(instance, metric, stat) {
 
-function createResource(data) {
-	
-	var resource = new MetricModelMap[]
+	var resource = new MetricModelMap[metric];
+
+	resource.instance_id = instance.instance_id;
+	resource.instance_type = instance.instance_type;
+	resource.region = instance.region;
+	resource.service_name = instance.service_name;
+
+	resource.time_stamp = stat.Timestamp;
+	resource.unit = stat.Unit;
+	resource.minimum = stat.Minimum;
+	resource.maximum = stat.Maximum;
+	resource.sum = stat.Sum;
+	resource.average = stat.Average;
+
+	return resource;
 };
 
 function createInstance(data) {
