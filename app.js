@@ -21,8 +21,10 @@ colors.setTheme({
 // timer
 var lock_free_time = 300000;
 // Every 300 seconds, Rampart are going to poll
-var resource_polling_range = 60;
+var resource_polling_range = 3000;
 // Last 60 minutes
+var resource_polling_period = 300;
+// Metric Unit : 60 seconds
 
 // mongoose
 var mongoose = require('mongoose');
@@ -497,7 +499,7 @@ function createMetricParams() {
 		Value : null
 	}];
 
-	params.Period = 60;
+	params.Period = resource_polling_period;
 	params.Statistics = ['Average', 'Minimum', 'Maximum', 'Sum'];
 
 	return params;
