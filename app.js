@@ -253,7 +253,7 @@ function sortResourceStat(stat) {
 	});
 
 	var parsedStat = _.map(sortedStat, function(item) {
-		var time = new Date(item.Timestamp).toLocaleString();
+		var time = new Date(item.Timestamp);
 		item.Timestamp = time;
 		return item;
 	});
