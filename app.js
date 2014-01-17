@@ -4,6 +4,7 @@ var fs = require('fs');
 var async = require('async');
 var EventEmitter = require('events').EventEmitter;
 var colors = require('colors');
+var inquirer = require('inquirer');
 
 colors.setTheme({
 	silly : 'rainbow',
@@ -19,12 +20,17 @@ colors.setTheme({
 });
 
 // timer
-var lock_free_time = 300000;
+var lock_free_time = 300 * 1000;
 // Every 300 seconds, Rampart are going to poll
-var resource_polling_range = 3000;
-// Last 60 minutes
+var resource_polling_range = 7200;
+// Last 7200 minutes
 var resource_polling_period = 300;
-// Metric Unit : 60 seconds
+// Metric Unit : 300 seconds
+var second = 1000;
+var minute = second * 60;
+
+var startTime = null;
+var endTime = null;
 
 // mongoose
 var mongoose = require('mongoose');
@@ -115,11 +121,27 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 								console.log(("Rampart > ").info + ("locked") + (" [Exist]").help);
 								lock = locks[0];
 								lock.locked = true;
+								
+								startTime = lock.polling_end_time;
+								endTime = new Date(startTime); 
+								endTime.setMinutes(endTime.getMinutes() + (resource_polling_range));
+								var currentTime = new Date();
+								
+								if ( endTime > currentTime ) {
+									endTime = currentTime;		
+								}
+								
 							} else {
+								// no Lock
 								console.log(("Rampart > ").info + ("locked") + (" [Non-Exist]").help);
 								lock = new Lock({
 									locked : true
 								});
+								endTime = new Date();
+								startTime = new Date(endTime);
+								startTime.setMinutes(endTime.getMinutes() - resource_polling_range);
+								
+								lock.polling_end_time = startTime;
 							}
 
 							lock.save(function(err) {
@@ -165,6 +187,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 					regionNumber = 0;
 					regionFinished = 0;
 					descSectionDone = null;
+					
 
 					lock.save(function(err) {
 						if (err) {
@@ -172,17 +195,109 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 						} else {
 							seriesCallback();
 							console.log(("Rampart > ").info + ("released"));
+							console.log('          ' + (startTime.toString()).grey + (' [From]').help);
+							console.log('          ' + (endTime.toString()).grey + (' [To]').help);
+							console.log();
 							setTimeout(done, lock_free_time);
-
 						}
 					});
 				}
 			});
 		};
 
-		async.forever(worker, function(err) {
-			// Working..
+		// Prompt Logic
+		inquirer.prompt({
+			type : "list",
+			name : "option",
+			message : "Rampart Action",
+			choices : ["Once", "Continuously"],
+			filter : function(val) {
+				return val.toLowerCase();
+			}
+		}, function(polling) {
+
+			var choices = [];
+
+			switch(polling.option) {
+
+				case 'continuously' :
+					choices = ['1 Minutes', '5 Minutes', '10 Minutes', '30 Minutes', '60 Minutes'];
+					break;
+				case 'once' :
+					// choices = ['1 Day', '3 Days ', '5 Days', '1 Week', '2 Weeks'];
+					choices = ['1 Day', '3 Days ', '5 Days'];
+					break;
+			}
+
+			inquirer.prompt({
+				type : "list",
+				name : "option",
+				message : "Time Range",
+				choices : choices,
+				filter : function(val) {
+					return val.toLowerCase();
+				}
+			}, function(range) {
+				if (polling.option == 'continuously') {
+
+					var range = Number(range.option.split(' ')[0]);
+
+					lock_free_time = range * minute;
+					
+					if ( range == 1 ) {
+						resource_polling_period = 60;
+					}
+					
+					resource_polling_range = range;
+					
+
+					async.forever(worker, function(err) {
+					});
+
+					// TODO : Timer
+					// we need timer to remove '2'. This code wastes time and resources
+					// sometime, this code caouse rampart not to collect proper data
+					// but i have no time to use timer.
+
+				} else {
+					// if once
+					var rangeString = range.option.split(' ');
+
+					if (/^Week/i.test(rangeString[1])) {
+						var day = 1440;
+						var count = rangeString[0] * 7;
+						lock_free_time = 1000;
+						resource_polling_range = day;
+
+						async.timesSeries(count, function(err, next) {
+							worker(next);
+						}, function(err, results) {
+							process.exit(0);
+						});
+
+					} else {
+						// day
+						var TimeMap = {
+							'1 day' : 1440,
+							'3 days' : 4320,
+							'5 days' : 7200
+						};
+
+						var range = TimeMap[range.option];
+						lock_free_time = 1000;
+						resource_polling_range = range;
+
+						async.timesSeries(1, function(err, next) {
+							worker(next);
+						}, function(err, results) {
+							process.exit(0);
+						});
+					}
+				}
+
+			});
 		});
+
 	}
 });
 
@@ -222,10 +337,9 @@ function polling(err, data) {
 
 								resource.save(function(err, data) {
 									if (err) {
-										console.log('Metric Duplicated [' + cwMetricParams.MetricName + '] ' + ' > ' +  
-											resource.instance_id + '(' + resource.service_name + ')' + ' of ' + resource.region);
+										console.log('Metric Duplicated [' + cwMetricParams.MetricName + '] ' + ' > ' + resource.instance_id + '(' + resource.service_name + ')' + ' of ' + resource.region);
 									}
-									
+
 									statCallback();
 								});
 							}, function(err, results) {
@@ -317,6 +431,8 @@ function makeLock(lock, updatedRecords) {
 	lock.california = updatedRecords.california;
 	lock.virginia = updatedRecords.virginia;
 	lock.oregon = updatedRecords.oregon;
+	lock.polling_end_time = endTime;
+	lock.polling_range = resource_polling_range;
 
 	console.log(("\t  Updated [Global]: " + updatedRecords.global).warn);
 	console.log(("\t  Updated [Tokyo]: " + updatedRecords.tokyo).debug);
@@ -472,9 +588,8 @@ function fillCWs(serviceObject, cws) {
 };
 
 function setMetricParamsTime(params) {
-	var end = new Date();
-	var start = new Date(end);
-	start.setMinutes(end.getMinutes() - resource_polling_range);
+	var end = endTime;
+	var start = startTime;
 	params.StartTime = start.toISOString();
 	params.EndTime = end.toISOString();
 };
