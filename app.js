@@ -31,6 +31,7 @@ var minute = second * 60;
 
 var startTime = null;
 var endTime = null;
+var once = false;
 
 // mongoose
 var mongoose = require('mongoose');
@@ -102,12 +103,12 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 		// EC2s
 		// Cloudwatchs
 
-		fillEC2s(serviceObject, ec2s);
-		fillCWs(serviceObject, cws);
-
 		var lock = null;
 
 		var worker = function(done) {
+
+			fillEC2s(serviceObject, ec2s);
+			fillCWs(serviceObject, cws);
 
 			async.series({
 				getLock : function(seriesCallback) {
@@ -121,16 +122,16 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 								console.log(("Rampart > ").info + ("locked") + (" [Exist]").help);
 								lock = locks[0];
 								lock.locked = true;
-								
+
 								startTime = lock.polling_end_time;
-								endTime = new Date(startTime); 
+								endTime = new Date(startTime);
 								endTime.setMinutes(endTime.getMinutes() + (resource_polling_range));
 								var currentTime = new Date();
-								
-								if ( endTime > currentTime ) {
-									endTime = currentTime;		
+
+								if (endTime > currentTime) {
+									endTime = currentTime;
 								}
-								
+
 							} else {
 								// no Lock
 								console.log(("Rampart > ").info + ("locked") + (" [Non-Exist]").help);
@@ -140,7 +141,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 								endTime = new Date();
 								startTime = new Date(endTime);
 								startTime.setMinutes(endTime.getMinutes() - resource_polling_range);
-								
+
 								lock.polling_end_time = startTime;
 							}
 
@@ -187,17 +188,29 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 					regionNumber = 0;
 					regionFinished = 0;
 					descSectionDone = null;
-					
 
 					lock.save(function(err) {
 						if (err) {
 							console.log(err);
 						} else {
 							seriesCallback();
+							
+							var current = new Date();
+							
 							console.log(("Rampart > ").info + ("released"));
 							console.log('          ' + (startTime.toString()).grey + (' [From]').help);
 							console.log('          ' + (endTime.toString()).grey + (' [To]').help);
+							console.log('          ' + (current.toString()).grey + (' [Now]').help);
 							console.log();
+							
+							var diff = (current.getTime() -  endTime.getTime());
+							if (!once) {
+								if ((diff / 1000) > resource_polling_range * 60) {
+									lock_free_time = 0;
+								} else {
+									lock_free_time = resource_polling_range * minute;
+								}
+							}
 							setTimeout(done, lock_free_time);
 						}
 					});
@@ -243,13 +256,12 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 					var range = Number(range.option.split(' ')[0]);
 
 					lock_free_time = range * minute;
-					
-					if ( range == 1 ) {
+
+					if (range == 1) {
 						resource_polling_period = 60;
 					}
-					
+
 					resource_polling_range = range;
-					
 
 					async.forever(worker, function(err) {
 					});
@@ -277,6 +289,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 
 					} else {
 						// day
+						once = true;
 						var TimeMap = {
 							'1 day' : 1440,
 							'3 days' : 4320,
