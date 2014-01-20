@@ -238,7 +238,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 					break;
 				case 'once' :
 					// choices = ['1 Day', '3 Days ', '5 Days', '1 Week', '2 Weeks'];
-					choices = ['1 Day', '3 Days ', '5 Days'];
+					choices = ['1 Day', '3 Days', '5 Days'];
 					break;
 			}
 
@@ -295,7 +295,6 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 							'3 days' : 4320,
 							'5 days' : 7200
 						};
-
 						var range = TimeMap[range.option];
 						lock_free_time = 1000;
 						resource_polling_range = range;
@@ -416,16 +415,16 @@ function createInstance(data) {
 
 	updatedRecords.global++;
 	updatedRecords[region]++;
-
+	
 	var instance = new Instance({
 		service_name : data.Tags[0].Value,
 		instance_id : data.InstanceId,
 		instance_type : data.InstanceType,
 		instance_state : data.State.Name,
 		region : region,
-		public_ip : data.PublicIpAddress,
-		private_ip : data.PrivateIpAddress,
-		security_group : data.SecurityGroups[0].GroupName
+		public_ip : (data.PublicIpAddress) ? data.PublicIpAddress : '',
+		private_ip : (data.PrivateIpAddress) ? data.PrivateIpAddress : '',
+		security_group : (data.SecurityGroups.length !== 0) ? data.SecurityGroups[0].GroupName : ''   
 	});
 
 	return instance;
