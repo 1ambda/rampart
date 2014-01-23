@@ -409,6 +409,7 @@ function createResource(instance, metric, stat) {
 };
 
 function createInstance(data) {
+	// console.log(data.LaunchTime);
 
 	var zone = data.Placement.AvailabilityZone;
 	var region = checkRegion(zone);
@@ -424,6 +425,7 @@ function createInstance(data) {
 		region : region,
 		public_ip : (data.PublicIpAddress) ? data.PublicIpAddress : '',
 		private_ip : (data.PrivateIpAddress) ? data.PrivateIpAddress : '',
+		launch_time : data.LaunchTime,
 		security_group : (data.SecurityGroups.length !== 0) ? data.SecurityGroups[0].GroupName : ''   
 	});
 
