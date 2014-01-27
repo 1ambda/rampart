@@ -49,6 +49,7 @@ var DiskReadOps = require('./app/models/disk_read_ops');
 var DiskWriteOps = require('./app/models/disk_write_ops');
 var NetworkIn = require('./app/models/network_in');
 var NetworkOut = require('./app/models/network_out');
+var Alert = require('./app/models/alert');
 
 var MetricModelMap = {
 	CPUUtilization : CpuUtilization,
@@ -76,6 +77,7 @@ var updatedRecords = {
 	virginia : 0,
 	california : 0,
 	oregon : 0,
+	alert: 0,
 };
 
 // for resource polling
@@ -169,6 +171,79 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 					});
 				},
 
+				descAlerts : function(seriesCallback) {
+					async.map(cws, function(cw, regionCallback) {
+
+						cw.object.describeAlarms({}, function(err, docs) {
+							if (err) {
+								console.log(err);
+								console.log('here');
+								return alertCallback();
+							}
+							
+							async.map(docs.MetricAlarms, function(item, alertCallback) {
+								
+								if(item.Dimensions.length >= 2) {
+									return alertCallback(); // Billing alert is useless.
+								}
+								
+								var parsedCondition = null;
+
+								switch(item.ComparisonOperator) {
+									case "GreaterThanOrEqualToThreshold" :
+										parsedCondition = ">=";
+										break;
+									case "GreaterThanThreshold" :
+										parsedCondition = ">";
+										break;
+									case "LessThanThreshold" :
+										parsedCondition = "<";
+										break;
+									case "LessThanOrEqualToThreshold" :
+										parsedCondition = "<=";
+										break;
+								}
+								
+
+								var alert = new Alert({
+									action_ok : item.OKActions[0] || 'none',
+									action_alarm : item.AlarmActions[0] || 'none',
+									action_insufficient : item.InsufficientDataActions[0] || 'none',
+									type : (item.Dimensions.length === 0) ? "InstanceId" : item.Dimensions[0].Name,
+									object : (item.Dimensions.length === 0) ? "All Instances" : item.Dimensions[0].Value,
+									name : item.AlarmName,
+									description : item.AlarmDescription || '',
+									status : item.StateValue,
+									condition : parsedCondition,
+									threshold : item.Threshold,
+									statistic : item.Statistic,
+									metric : item.MetricName,
+									period : Number(item.Period) * Number(item.EvaluationPeriods),
+									region: cw.region,
+									time_stamp: startTime
+								});
+
+								alert.save(function(err) {
+									if (err) {
+										console.log(err);
+									}
+									
+									updatedRecords.alert++;
+									return alertCallback();
+								});
+
+							}, function(err, results) {
+								regionCallback();
+							});
+
+						});
+
+					}, function(err, results) {
+						seriesCallback();
+					});
+
+				},
+
 				releaseLock : function(seriesCallback) {
 
 					makeLock(lock, updatedRecords);
@@ -184,6 +259,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 						virginia : 0,
 						california : 0,
 						oregon : 0,
+						alert: 0,
 					};
 					regionNumber = 0;
 					regionFinished = 0;
@@ -194,16 +270,16 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 							console.log(err);
 						} else {
 							seriesCallback();
-							
+
 							var current = new Date();
-							
+
 							console.log(("Rampart > ").info + ("released"));
 							console.log('          ' + (startTime.toString()).grey + (' [From]').help);
 							console.log('          ' + (endTime.toString()).grey + (' [To]').help);
 							console.log('          ' + (current.toString()).grey + (' [Now]').help);
 							console.log();
-							
-							var diff = (current.getTime() -  endTime.getTime());
+
+							var diff = (current.getTime() - endTime.getTime());
 							if (!once) {
 								if ((diff / 1000) > resource_polling_range * 60) {
 									lock_free_time = 0;
@@ -416,9 +492,9 @@ function createInstance(data) {
 
 	updatedRecords.global++;
 	updatedRecords[region]++;
-	
+
 	var instance = new Instance({
-		service_name : data.Tags[0].Value,
+		service_name : ( data.Tags.length ) ? data.Tags[0].Value : '',
 		instance_id : data.InstanceId,
 		instance_type : data.InstanceType,
 		instance_state : data.State.Name,
@@ -426,7 +502,7 @@ function createInstance(data) {
 		public_ip : (data.PublicIpAddress) ? data.PublicIpAddress : '',
 		private_ip : (data.PrivateIpAddress) ? data.PrivateIpAddress : '',
 		launch_time : data.LaunchTime,
-		security_group : (data.SecurityGroups.length !== 0) ? data.SecurityGroups[0].GroupName : ''   
+		security_group : (data.SecurityGroups.length !== 0) ? data.SecurityGroups[0].GroupName : ''
 	});
 
 	return instance;
@@ -445,6 +521,7 @@ function makeLock(lock, updatedRecords) {
 	lock.california = updatedRecords.california;
 	lock.virginia = updatedRecords.virginia;
 	lock.oregon = updatedRecords.oregon;
+	lock.alert = updatedRecords.alert;
 	lock.polling_end_time = endTime;
 	lock.polling_range = resource_polling_range;
 
@@ -457,6 +534,7 @@ function makeLock(lock, updatedRecords) {
 	console.log(("\t  Updated [Virginia]: " + updatedRecords.virginia).debug);
 	console.log(("\t  Updated [California]: " + updatedRecords.california).debug);
 	console.log(("\t  Updated [Oregon]: " + updatedRecords.oregon).debug);
+	console.log(("\t  Updated [Alert]: " + updatedRecords.alert).help);
 };
 
 function checkRegion(zone) {
