@@ -78,7 +78,7 @@ var updatedRecords = {
 	virginia : 0,
 	california : 0,
 	oregon : 0,
-	alert: 0,
+	alert : 0,
 };
 
 // for resource polling
@@ -181,13 +181,14 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 								console.log('here');
 								return alertCallback();
 							}
-							
+
 							async.map(docs.MetricAlarms, function(item, alertCallback) {
-								
-								if(item.Dimensions.length >= 2) {
-									return alertCallback(); // Billing alert is useless.
+
+								if (item.Dimensions.length >= 2) {
+									return alertCallback();
+									// Billing alert is useless.
 								}
-								
+
 								var parsedCondition = null;
 
 								switch(item.ComparisonOperator) {
@@ -204,7 +205,6 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 										parsedCondition = "<=";
 										break;
 								}
-								
 
 								var alert = new Alert({
 									action_ok : item.OKActions[0] || 'none',
@@ -220,15 +220,15 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 									statistic : item.Statistic,
 									metric : item.MetricName,
 									period : Number(item.Period) * Number(item.EvaluationPeriods),
-									region: cw.region,
-									time_stamp: startTime
+									region : cw.region,
+									time_stamp : startTime
 								});
 
 								alert.save(function(err) {
 									if (err) {
 										console.log(err);
 									}
-									
+
 									updatedRecords.alert++;
 									return alertCallback();
 								});
@@ -260,7 +260,7 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 						virginia : 0,
 						california : 0,
 						oregon : 0,
-						alert: 0,
+						alert : 0,
 					};
 					regionNumber = 0;
 					regionFinished = 0;
@@ -294,6 +294,21 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 				}
 			});
 		};
+
+		if (process.argv[2] == 'forever') {
+			var range = 5;
+
+			lock_free_time = range * minute;
+
+			if (range == 1) {
+				resource_polling_period = 60;
+			}
+
+			resource_polling_range = range;
+
+			async.forever(worker, function(err) {
+			});
+		}
 
 		// Prompt Logic
 		inquirer.prompt({
@@ -329,7 +344,6 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 				}
 			}, function(range) {
 				if (polling.option == 'continuously') {
-
 					var range = Number(range.option.split(' ')[0]);
 
 					lock_free_time = range * minute;
@@ -342,11 +356,6 @@ fs.readFile('./config.json', 'utf8', function(err, data) {
 
 					async.forever(worker, function(err) {
 					});
-
-					// TODO : Timer
-					// we need timer to remove '2'. This code wastes time and resources
-					// sometime, this code caouse rampart not to collect proper data
-					// but i have no time to use timer.
 
 				} else {
 					// if once
@@ -495,7 +504,7 @@ function createInstance(data) {
 	updatedRecords[region]++;
 
 	var instance = new Instance({
-		service_name : ( data.Tags.length ) ? data.Tags[0].Value : '',
+		service_name : (data.Tags.length ) ? data.Tags[0].Value : '',
 		instance_id : data.InstanceId,
 		instance_type : data.InstanceType,
 		instance_state : data.State.Name,
