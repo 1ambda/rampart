@@ -35,8 +35,8 @@ var once = false;
 
 // mongoose
 var mongoose = require('mongoose');
-// mongoose.connect('mongodb://archer:rampart@localhost/test');
-mongoose.connect('mongodb://archer:rampart@ds027829.mongolab.com:27829/test');
+mongoose.connect('mongodb://archer:rampart@localhost/test');
+//mongoose.connect('mongodb://archer:rampart@ds027829.mongolab.com:27829/test');
 
 // mongoose model for instance polling
 var Instance = require('./app/models/instance');
